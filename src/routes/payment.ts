@@ -3,6 +3,73 @@ import { createClient } from '@supabase/supabase-js';
 import { getSecureHeaders } from '../utils/security.js';
 import { isValidUUID } from '../utils/error-handler.js';
 
+async function ensureJobExists(
+  supabaseClient: any,
+  orderId: string,
+  quizId: string | null,
+  provider: 'cakto' | 'hotmart'
+): Promise<{ jobId: string | null; created: boolean }> {
+  if (!quizId) {
+    console.warn(`⚠️ [${provider} Webhook] Pedido ${orderId} não tem quiz_id - não é possível criar job`);
+    return { jobId: null, created: false };
+  }
+
+  try {
+    // Verificar se job já existe
+    const { data: existingJob, error: checkError } = await supabaseClient
+      .from('jobs')
+      .select('id, status')
+      .eq('order_id', orderId)
+      .limit(1);
+
+    if (checkError) {
+      console.error(`❌ [${provider} Webhook] Erro ao verificar job existente para pedido ${orderId}:`, checkError);
+      return { jobId: null, created: false };
+    }
+
+    if (existingJob && existingJob.length > 0) {
+      console.log(`✅ [${provider} Webhook] Job já existe para pedido ${orderId}`, {
+        job_id: existingJob[0].id,
+        job_status: existingJob[0].status
+      });
+      return { jobId: existingJob[0].id, created: false };
+    }
+
+    // Job não existe - criar manualmente
+    console.log(`🔧 [${provider} Webhook] Job não existe - criando manualmente para pedido ${orderId}`, {
+      order_id: orderId,
+      quiz_id: quizId
+    });
+
+    const { data: newJob, error: createError } = await supabaseClient
+      .from('jobs')
+      .insert({
+        order_id: orderId,
+        quiz_id: quizId,
+        status: 'pending',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString()
+      })
+      .select('id')
+      .single();
+
+    if (createError || !newJob) {
+      console.error(`❌ [${provider} Webhook] Erro ao criar job para pedido ${orderId}:`, createError);
+      return { jobId: null, created: false };
+    }
+
+    console.log(`✅ [${provider} Webhook] Job criado com sucesso para pedido ${orderId}`, {
+      job_id: newJob.id,
+      order_id: orderId
+    });
+
+    return { jobId: newJob.id, created: true };
+  } catch (error: any) {
+    console.error(`❌ [${provider} Webhook] Exceção ao garantir job para pedido ${orderId}:`, error);
+    return { jobId: null, created: false };
+  }
+}
+
 export async function paymentRoutes(app: FastifyInstance) {
   const supabaseUrl = process.env.SUPABASE_URL || '';
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -837,16 +904,19 @@ export async function paymentRoutes(app: FastifyInstance) {
           });
       }
       
-      if (order.status === 'paid') {
-        console.log('✅ [Hotmart Webhook] Pedido já está pago - idempotente');
-        return reply
-          .code(200)
-          .headers(secureHeaders)
-          .send({ received: true, message: 'Already processed' });
+      // ✅ CORREÇÃO CRÍTICA: Não retornar early se pedido já está pago
+      // Precisamos garantir que a função de gerar letras seja sempre chamada
+      const wasAlreadyPaid = order.status === 'paid';
+      
+      if (wasAlreadyPaid) {
+        console.log('ℹ️ [Hotmart Webhook] Pedido já está pago - verificando se precisa gerar letra', {
+          order_id: order.id
+        });
       }
       
       const paidAtTimestamp = paid_at || new Date().toISOString();
       
+      // Atualizar pedido para 'paid' (mesmo que já esteja, para garantir dados atualizados)
       const { error: updateError, data: updateData } = await supabaseClient
         .from('orders')
         .update({
@@ -854,11 +924,11 @@ export async function paymentRoutes(app: FastifyInstance) {
           hotmart_payment_status: 'approved',
           hotmart_transaction_id: transaction,
           provider: 'hotmart',
-          paid_at: paidAtTimestamp,
+          paid_at: paidAtTimestamp || order.paid_at,
           updated_at: new Date().toISOString()
         })
         .eq('id', order.id)
-        .select('id, status, paid_at');
+        .select('id, status, paid_at, quiz_id');
       
       if (updateError || !updateData || updateData.length === 0) {
         console.error('❌ [Hotmart Webhook] Erro ao atualizar:', updateError);
@@ -872,7 +942,8 @@ export async function paymentRoutes(app: FastifyInstance) {
       
       console.log('✅ [Hotmart Webhook] Pedido marcado como pago!', {
         order_id: updatedOrder.id,
-        status: updatedOrder.status
+        status: updatedOrder.status,
+        was_already_paid: wasAlreadyPaid
       });
 
       // Registrar log de sucesso
@@ -889,12 +960,14 @@ export async function paymentRoutes(app: FastifyInstance) {
         processing_time_ms: Date.now() - startTime
       });
       
-      // Verificar idempotência de email
+      // Verificar idempotência de email (igual à Cakto)
       console.log('📧 [Hotmart Webhook] Verificando idempotência de email de confirmação...', {
-        order_id: order.id
+        order_id: order.id,
+        timestamp: new Date().toISOString()
       });
       
-      const { data: quickEmailCheck } = await supabaseClient
+      // Verificação rápida de email_logs
+      const { data: quickEmailCheck, error: quickEmailError } = await supabaseClient
         .from('email_logs')
         .select('id, email_type, status, sent_at, recipient_email, created_at')
         .eq('order_id', order.id)
@@ -909,8 +982,16 @@ export async function paymentRoutes(app: FastifyInstance) {
         
         if (emailLog.status === 'sent' || emailLog.status === 'delivered' || 
             (emailLog.status === 'pending' && emailAge > 10000)) {
-          console.log('✅ [Hotmart Webhook] Email de confirmação já existe - pulando envio duplicado');
+          console.log('✅ [Hotmart Webhook] Email de confirmação já existe - pulando envio duplicado', {
+            order_id: order.id,
+            email_log_id: emailLog.id,
+            status: emailLog.status
+          });
         } else if (emailLog.status === 'pending' && emailAge <= 10000) {
+          console.log('⏳ [Hotmart Webhook] Email em processamento recente - aguardando...', {
+            order_id: order.id,
+            email_age_ms: emailAge
+          });
           await new Promise(resolve => setTimeout(resolve, 2000));
           
           const { data: recheckEmail } = await supabaseClient
@@ -951,32 +1032,164 @@ export async function paymentRoutes(app: FastifyInstance) {
         }
       }
       
-      // Gerar letra automaticamente
+      // ✅ CORREÇÃO CRÍTICA: Gerar letra automaticamente SEMPRE que pedido é pago
+      // Esta seção é COMPLETAMENTE SEPARADA da lógica de email
+      // Não depende de shouldSkipDueToMultipleWebhooks ou qualquer outra condição de email
       let lyricsGenerated = false;
+      
+      console.log('🎵 [Hotmart Webhook] Iniciando processo de geração de letras...', {
+        order_id: updatedOrder.id,
+        quiz_id: updatedOrder.quiz_id,
+        timestamp: new Date().toISOString()
+      });
+      
+      // PASSO 1: Verificar se já existe approval (idempotência)
+      let shouldGenerateLyrics = true;
+      try {
+        const { data: existingApproval, error: approvalCheckError } = await supabaseClient
+          .from('lyrics_approvals')
+          .select('id, status')
+          .eq('order_id', updatedOrder.id)
+          .limit(1);
+        
+        if (approvalCheckError) {
+          console.warn('⚠️ [Hotmart Webhook] Erro ao verificar approval existente, continuando...', {
+            order_id: updatedOrder.id,
+            error: approvalCheckError?.message
+          });
+        } else if (existingApproval && existingApproval.length > 0) {
+          console.log('ℹ️ [Hotmart Webhook] Approval já existe - pulando geração de letra', {
+            order_id: updatedOrder.id,
+            approval_id: existingApproval[0].id,
+            approval_status: existingApproval[0].status,
+            timestamp: new Date().toISOString()
+          });
+          shouldGenerateLyrics = false;
+        }
+      } catch (approvalError: any) {
+        console.warn('⚠️ [Hotmart Webhook] Exceção ao verificar approval, continuando...', {
+            order_id: updatedOrder.id,
+          error: approvalError?.message
+        });
+      }
+      
+      // PASSO 2: Garantir que job existe (criar se necessário)
+      if (shouldGenerateLyrics) {
+        if (!updatedOrder.quiz_id) {
+          console.warn('⚠️ [Hotmart Webhook] Pedido não tem quiz_id - não é possível gerar letra', {
+          order_id: updatedOrder.id,
+            timestamp: new Date().toISOString()
+          });
+          shouldGenerateLyrics = false;
+        } else {
+          const { jobId, created } = await ensureJobExists(
+            supabaseClient,
+            updatedOrder.id,
+            updatedOrder.quiz_id,
+            'hotmart'
+          );
+          
+          if (!jobId) {
+            console.error('❌ [Hotmart Webhook] Não foi possível garantir job - pulando geração de letra', {
+              order_id: updatedOrder.id,
+              quiz_id: updatedOrder.quiz_id,
+              timestamp: new Date().toISOString()
+            });
+            shouldGenerateLyrics = false;
+          } else {
+            console.log('✅ [Hotmart Webhook] Job garantido para geração de letras', {
+              order_id: updatedOrder.id,
+              job_id: jobId,
+              job_created: created,
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+      }
+      
+      // PASSO 3: Chamar função de gerar letras se necessário
+      if (shouldGenerateLyrics) {
+        console.log('🎵 [Hotmart Webhook] Chamando generate-lyrics-for-approval para gerar letra...', {
+          order_id: updatedOrder.id,
+          quiz_id: updatedOrder.quiz_id,
+          timestamp: new Date().toISOString()
+        });
+        
       const maxRetries = 3;
       
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
+            console.log(`🔄 [Hotmart Webhook] Tentativa ${attempt}/${maxRetries} de gerar letra...`, {
+              order_id: updatedOrder.id,
+              attempt,
+              timestamp: new Date().toISOString()
+            });
+            
           const { data: lyricsData, error: lyricsError } = await supabaseClient.functions.invoke(
             'generate-lyrics-for-approval',
             {
-              body: { order_id: order.id }
+                body: { order_id: updatedOrder.id }
             }
           );
           
           if (!lyricsError && lyricsData && lyricsData.success !== false) {
             lyricsGenerated = true;
+              console.log('✅ [Hotmart Webhook] Letra sendo gerada com sucesso', {
+                order_id: updatedOrder.id,
+                attempt,
+                response: lyricsData,
+                timestamp: new Date().toISOString()
+              });
             break;
+            } else {
+              console.warn(`⚠️ [Hotmart Webhook] Erro ao gerar letra (tentativa ${attempt}/${maxRetries})`, {
+                order_id: updatedOrder.id,
+                attempt,
+                error: lyricsError,
+                data: lyricsData,
+                timestamp: new Date().toISOString()
+              });
           }
           
           if (attempt < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+              const delay = 1000 * attempt;
+              console.log(`⏳ [Hotmart Webhook] Aguardando ${delay}ms antes da próxima tentativa...`, {
+                order_id: updatedOrder.id,
+                attempt,
+                next_attempt: attempt + 1,
+                delay_ms: delay
+              });
+              await new Promise(resolve => setTimeout(resolve, delay));
           }
         } catch (invokeError: any) {
+            console.error(`❌ [Hotmart Webhook] Exceção ao chamar generate-lyrics-for-approval (tentativa ${attempt}/${maxRetries})`, {
+              order_id: updatedOrder.id,
+              attempt,
+              error: invokeError?.message,
+              stack: invokeError?.stack,
+              timestamp: new Date().toISOString()
+            });
+            
           if (attempt < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+              const delay = 1000 * attempt;
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
           }
         }
+        
+        if (!lyricsGenerated) {
+          console.error('❌ [Hotmart Webhook] Falha ao gerar letra após todas as tentativas', {
+            order_id: updatedOrder.id,
+            max_retries: maxRetries,
+            timestamp: new Date().toISOString()
+          });
+          }
+      } else {
+        console.log('⏭️ [Hotmart Webhook] Geração de letra não será executada', {
+          order_id: updatedOrder.id,
+          reason: 'Approval já existe ou pedido não tem quiz_id',
+          timestamp: new Date().toISOString()
+        });
       }
       
       return reply
