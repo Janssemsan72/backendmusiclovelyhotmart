@@ -257,7 +257,7 @@ export async function paymentRoutes(app: FastifyInstance) {
       
       // Estratégia 2: Email (próximo pedido pendente)
       if (!order && customer_email) {
-        const { data: ordersByEmail, error } = await supabaseClient
+        const { data: ordersByEmail } = await supabaseClient
           .from('orders')
           .select('*')
           .eq('customer_email', customer_email)
@@ -275,7 +275,7 @@ export async function paymentRoutes(app: FastifyInstance) {
       if (!order && customer_phone) {
         const normalizedPhone = customer_phone.replace(/\D/g, '');
         
-        const { data: ordersByPhone, error } = await supabaseClient
+        const { data: ordersByPhone } = await supabaseClient
           .from('orders')
           .select('*')
           .eq('provider', 'cakto')
@@ -466,7 +466,7 @@ export async function paymentRoutes(app: FastifyInstance) {
             order_id: order.id
           });
           
-          const { data: notifyData, error: notifyError } = await supabaseClient.functions.invoke(
+          const { error: notifyError } = await supabaseClient.functions.invoke(
             'notify-payment-webhook',
             {
               body: { order_id: order.id }
@@ -721,7 +721,6 @@ export async function paymentRoutes(app: FastifyInstance) {
       const purchase = data.purchase || {};
       const buyer = purchase.buyer || {};
       const transaction = purchase.transaction || '';
-      const orderId = purchase.order?.id || '';
       
       const customer_email_raw = buyer.email || data.email || '';
       const customer_email = customer_email_raw ? String(customer_email_raw).toLowerCase().trim() : '';
@@ -794,7 +793,7 @@ export async function paymentRoutes(app: FastifyInstance) {
       
       // Estratégia 1: Email (próximo pedido pendente)
       if (!order && customer_email) {
-        const { data: ordersByEmail, error } = await supabaseClient
+        const { data: ordersByEmail } = await supabaseClient
           .from('orders')
           .select('*')
           .eq('customer_email', customer_email)
@@ -812,7 +811,7 @@ export async function paymentRoutes(app: FastifyInstance) {
       if (!order && customer_phone) {
         const normalizedPhone = customer_phone.replace(/\D/g, '');
         
-        const { data: ordersByPhone, error } = await supabaseClient
+        const { data: ordersByPhone } = await supabaseClient
           .from('orders')
           .select('*')
           .eq('provider', 'hotmart')
@@ -967,7 +966,7 @@ export async function paymentRoutes(app: FastifyInstance) {
       });
       
       // Verificação rápida de email_logs
-      const { data: quickEmailCheck, error: quickEmailError } = await supabaseClient
+      const { data: quickEmailCheck } = await supabaseClient
         .from('email_logs')
         .select('id, email_type, status, sent_at, recipient_email, created_at')
         .eq('order_id', order.id)
@@ -1015,7 +1014,7 @@ export async function paymentRoutes(app: FastifyInstance) {
             order_id: order.id
           });
           
-          const { data: notifyData, error: notifyError } = await supabaseClient.functions.invoke(
+          const { error: notifyError } = await supabaseClient.functions.invoke(
             'notify-payment-webhook',
             {
               body: { order_id: order.id }

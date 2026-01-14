@@ -3,9 +3,7 @@ import { createClient } from '@supabase/supabase-js';
 import { getSecureHeaders } from '../utils/security.js';
 import { 
   sanitizeError, 
-  isRetryableError, 
-  extractErrorDetails,
-  isHtmlError 
+  extractErrorDetails
 } from '../utils/errorSanitizer.js';
 
 export async function generationRoutes(app: FastifyInstance) {
@@ -211,7 +209,6 @@ export async function generationRoutes(app: FastifyInstance) {
     } catch (error: any) {
       // ✅ Sanitizar erro inesperado também
       const sanitizedError = sanitizeError(error);
-      const errorDetails = extractErrorDetails(error);
       
       console.error('❌ [generate-audio] Erro inesperado:', {
         timestamp: new Date().toISOString(),

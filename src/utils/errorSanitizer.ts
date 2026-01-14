@@ -66,33 +66,6 @@ export function extractErrorInfo(html: string): { status: number; message: strin
 }
 
 /**
- * Remove tags HTML e mantém apenas texto útil
- */
-function stripHtmlTags(html: string): string {
-  try {
-    // Remover tags HTML
-    let text = html.replace(/<[^>]+>/g, ' ');
-    
-    // Remover entidades HTML comuns
-    text = text
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .replace(/&apos;/g, "'");
-    
-    // Limpar espaços múltiplos
-    text = text.replace(/\s+/g, ' ').trim();
-    
-    return text;
-  } catch (err) {
-    return html;
-  }
-}
-
-/**
  * Trunca uma string se for muito longa
  */
 function truncateError(error: string, maxLength: number = 500): string {
