@@ -26,6 +26,7 @@ async function startServer() {
     log('index.ts:8', 'Iniciando startServer', { VERCEL: process.env.VERCEL, PORT: process.env.PORT, NODE_ENV: process.env.NODE_ENV }, 'H1');
     // #endregion
     console.log('[Server] Inicializando aplicação...');
+    console.log('[DEBUG] Environment:', { VERCEL: process.env.VERCEL, PORT: process.env.PORT, NODE_ENV: process.env.NODE_ENV });
     
     // #region agent log
     log('index.ts:12', 'Chamando createApp', {}, 'H1');
@@ -67,6 +68,12 @@ async function startServer() {
       console.log(`[Server] ✅ Servidor rodando na porta ${port}`);
       console.log(`[Server] ✅ Health check disponível em http://0.0.0.0:${port}/health`);
       console.log(`[Server] ✅ Servidor pronto para receber requisições`);
+      console.log('[DEBUG] Server state:', { 
+        listening: app.server?.listening, 
+        address: app.server?.address(),
+        port: port,
+        host: '0.0.0.0'
+      });
     } else {
       console.log('[Server] Ambiente Vercel detectado - servidor não será iniciado');
     }
