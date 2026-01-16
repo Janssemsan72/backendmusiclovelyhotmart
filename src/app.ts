@@ -7,23 +7,9 @@ import { generationRoutes } from './routes/generation.js';
 export async function createApp() {
   const app = Fastify({ logger: true });
 
-  // ✅ CORREÇÃO RAILWAY: Registrar healthcheck ANTES do CORS
-  // Isso garante que healthchecks não sejam bloqueados por CORS
+  // Healthcheck para a Railway - DEVE SER A PRIMEIRA ROTA REGISTRADA
   app.get('/health', async (request, reply) => {
-    // Log para debug
-    const host = request.headers.host || 'unknown';
-    const origin = request.headers.origin || 'sem origin';
-    
-    if (process.env.NODE_ENV !== 'production') {
-      console.log(`[Healthcheck] ✅ Requisição recebida de: ${host}, Origin: ${origin}`);
-    }
-    
-    return reply.status(200).send({ 
-      ok: true, 
-      timestamp: new Date().toISOString(),
-      host: host,
-      environment: process.env.NODE_ENV || 'development'
-    });
+    return reply.status(200).send({ status: 'ok' });
   });
 
   // CORS - aceitar apenas frontend
