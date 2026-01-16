@@ -59,7 +59,7 @@ export async function createApp() {
   });
 
   // Health check
-  app.get('/health', async (request, reply) => {
+  app.get('/health', async (_request, reply) => {
     return reply.status(200).send({ ok: true, timestamp: new Date().toISOString() });
   });
 
