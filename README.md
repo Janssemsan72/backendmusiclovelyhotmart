@@ -128,13 +128,28 @@ src/
 
 ## Deploy
 
-Este projeto está configurado para deploy no Railway. O arquivo `railway.json` contém as configurações necessárias.
+Este projeto está configurado para deploy no Railway e Vercel.
+
+### Vercel (Recomendado)
+
+1. Conecte o repositório à Vercel
+2. Configure as variáveis de ambiente no painel da Vercel
+3. O deploy será automático via `vercel.json`
+4. O handler serverless está em `api/index.ts`
+
+**Variáveis de ambiente necessárias:**
+- `SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `FRONTEND_URL` (opcional, para CORS)
+- `NODE_ENV=production`
+
+**Nota:** A Vercel detecta automaticamente arquivos na pasta `api/` como serverless functions.
 
 ### Railway
 
 1. Conecte o repositório ao Railway
 2. Configure as variáveis de ambiente
-3. O deploy será automático
+3. O deploy será automático via `railway.json`
 
 ### Outros Plataformas
 
