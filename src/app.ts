@@ -7,9 +7,31 @@ import { generationRoutes } from './routes/generation.js';
 export async function createApp() {
   const app = Fastify({ logger: true });
 
+  // ✅ CORREÇÃO RAILWAY: Registrar healthcheck ANTES do CORS
+  // Isso garante que healthchecks não sejam bloqueados por CORS
+  app.get('/health', async (request, reply) => {
+    // Log para debug
+    const host = request.headers.host || 'unknown';
+    const origin = request.headers.origin || 'sem origin';
+    
+    if (process.env.NODE_ENV !== 'production') {
+      console.log(`[Healthcheck] ✅ Requisição recebida de: ${host}, Origin: ${origin}`);
+    }
+    
+    return reply.status(200).send({ 
+      ok: true, 
+      timestamp: new Date().toISOString(),
+      host: host,
+      environment: process.env.NODE_ENV || 'development'
+    });
+  });
+
   // CORS - aceitar apenas frontend
   const isAllowedOrigin = (origin: string | undefined): boolean => {
-    if (!origin) return false;
+    // ✅ CORREÇÃO RAILWAY: Permitir requisições sem origin em desenvolvimento
+    if (!origin) {
+      return process.env.NODE_ENV !== 'production';
+    }
     
     const fixedOrigins = [
       'https://musiclovely.com',
@@ -37,6 +59,17 @@ export async function createApp() {
 
   await app.register(cors, { 
     origin: (origin, callback) => {
+      // ✅ CORREÇÃO RAILWAY: Permitir requisições sem origin para healthchecks
+      // Healthchecks do Railway não enviam origin header
+      if (!origin) {
+        // Permitir requisições sem origin (healthchecks do Railway)
+        if (process.env.NODE_ENV !== 'production') {
+          console.log(`[CORS] ✅ Requisição sem origin permitida (healthcheck)`);
+        }
+        callback(null, true);
+        return;
+      }
+      
       if (process.env.NODE_ENV !== 'production') {
         console.log(`[CORS] Origin recebida: ${origin}`);
       }
@@ -56,11 +89,6 @@ export async function createApp() {
       }
     },
     credentials: true
-  });
-
-  // Health check
-  app.get('/health', async (_request, reply) => {
-    return reply.status(200).send({ ok: true, timestamp: new Date().toISOString() });
   });
 
   // Registrar rotas
