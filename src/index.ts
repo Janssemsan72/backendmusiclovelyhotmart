@@ -66,8 +66,15 @@ await app.register(cors, {
   credentials: true
 })
 
-// Health check
-app.get('/health', async () => ({ ok: true, timestamp: new Date().toISOString() }))
+// Health check - ✅ CORREÇÃO: Retornar status 200 explicitamente para Railway
+// ✅ CORREÇÃO: Aceitar requisições do hostname healthcheck.railway.app
+app.get('/health', async (request, reply) => {
+  // Log para debug (apenas em desenvolvimento)
+  if (process.env.NODE_ENV !== 'production') {
+    console.log(`[Healthcheck] Requisição de: ${request.headers.host || 'unknown'}`);
+  }
+  return reply.status(200).send({ ok: true, timestamp: new Date().toISOString() });
+})
 
 // Registrar rotas
 await app.register(paymentRoutes)
