@@ -8,7 +8,7 @@ export async function createApp() {
   const app = Fastify({ logger: true });
 
   // Healthcheck para a Railway - DEVE SER A PRIMEIRA ROTA REGISTRADA
-  app.get('/health', async (request, reply) => {
+  app.get('/health', async (_request, reply) => {
     return reply.status(200).send({ status: 'ok' });
   });
 
