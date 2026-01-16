@@ -6,7 +6,7 @@
   "main": "dist/index.js",
   "scripts": {
     "dev": "tsx watch src/index.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node -e \"const fs=require('fs');const path=require('path');console.log('Current directory:', process.cwd());console.log('Files in dist:', fs.existsSync('dist')?fs.readdirSync('dist').join(', '):'dist does not exist');if(!fs.existsSync('dist/index.js')){console.error('ERROR: dist/index.js not found!');console.error('Full path checked:', path.resolve('dist/index.js'));process.exit(1);}console.log('Build verified: dist/index.js exists at', path.resolve('dist/index.js'));\"",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit"
   },
