@@ -11,7 +11,7 @@ interface PurchaseEventParams {
  * via GA4 Measurement Protocol.
  *
  * Requer env vars: GA4_MEASUREMENT_ID e GA4_API_SECRET.
- * Endpoint proxied pelo Stape: https://api.musiclovely.com.br/mp/collect
+ * Endpoint proxied pelo Stape: https://musiclovely.online/mp/collect
  */
 export async function sendPurchaseToStape(params: PurchaseEventParams): Promise<void> {
   const measurementId = process.env.GA4_MEASUREMENT_ID;
@@ -22,7 +22,7 @@ export async function sendPurchaseToStape(params: PurchaseEventParams): Promise<
     return;
   }
 
-  const endpoint = `https://api.musiclovely.com.br/mp/collect?measurement_id=${measurementId}&api_secret=${apiSecret}`;
+  const endpoint = `https://musiclovely.online/mp/collect?measurement_id=${measurementId}&api_secret=${apiSecret}`;
 
   const payload = {
     client_id: params.gaClientId,

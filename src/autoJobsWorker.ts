@@ -52,6 +52,11 @@ export function startAutoJobsWorker(): void {
     invoke('run-one-auto-release', supabaseUrl, serviceKey);
   }, RELEASE_INTERVAL_MS);
 
+  const heartbeatMs = 60_000;
+  setInterval(() => {
+    console.log('[AutoJobs] Worker ativo (letras 8s, releases 4s).');
+  }, heartbeatMs);
+
   console.log('[AutoJobs] Worker iniciado (letras a cada 8s, releases a cada 4s).');
 }
 
