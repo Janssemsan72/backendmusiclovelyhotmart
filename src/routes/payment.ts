@@ -613,11 +613,6 @@ export async function paymentRoutes(app: FastifyInstance) {
           .send({ success: false, error: 'Invalid provider: must be cakto or hotmart' });
       }
 
-      const ipAddress = request.headers['x-forwarded-for'] || 
-                       request.headers['x-real-ip'] || 
-                       'unknown';
-      const userAgent = request.headers['user-agent'] || 'unknown';
-
       // RPC rápida no Supabase (<8s); create_order_atomic estourava statement timeout
       const { data: result, error: rpcError } = await supabaseClient.rpc('create_checkout_order_fast', {
         p_session_id: session_id,
