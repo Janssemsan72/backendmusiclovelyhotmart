@@ -618,7 +618,8 @@ export async function paymentRoutes(app: FastifyInstance) {
                        'unknown';
       const userAgent = request.headers['user-agent'] || 'unknown';
 
-      const { data: result, error: rpcError } = await supabaseClient.rpc('create_order_atomic', {
+      // RPC rápida no Supabase (<8s); create_order_atomic estourava statement timeout
+      const { data: result, error: rpcError } = await supabaseClient.rpc('create_checkout_order_fast', {
         p_session_id: session_id,
         p_customer_email: customer_email,
         p_customer_whatsapp: customer_whatsapp,
@@ -627,9 +628,6 @@ export async function paymentRoutes(app: FastifyInstance) {
         p_amount_cents: amount_cents,
         p_provider: provider,
         p_transaction_id: transaction_id || null,
-        p_source: 'backend_api',
-        p_ip_address: ipAddress,
-        p_user_agent: userAgent
       });
 
       if (rpcError || !result || !result.success) {
