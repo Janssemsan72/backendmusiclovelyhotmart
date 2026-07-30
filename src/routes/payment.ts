@@ -3,6 +3,10 @@ import { createClient } from '@supabase/supabase-js';
 import { getSecureHeaders } from '../utils/security.js';
 import { isValidUUID } from '../utils/error-handler.js';
 import { sendPurchaseToStape } from '../utils/serverTracking.js';
+import {
+  classifyHotmartAddon,
+  getHotmartParentTransactionId,
+} from '../utils/hotmartAddons.js';
 
 async function ensureJobExists(
   supabaseClient: any,
@@ -686,7 +690,8 @@ export async function paymentRoutes(app: FastifyInstance) {
           .send({ error: 'Webhook secret not configured' });
       }
       
-      const receivedToken = (request.headers['authorization']?.replace('Bearer ', '') || 
+      const receivedToken = (request.headers['authorization']?.replace('Bearer ', '') ||
+                            request.headers['x-hotmart-hottok'] as string ||
                             request.headers['x-hotmart-token'] as string) ||
                             (request.body as any)?.token ||
                             '';
@@ -728,13 +733,22 @@ export async function paymentRoutes(app: FastifyInstance) {
       
       // Extrair dados do webhook da Hotmart
       const purchase = data.purchase || {};
-      const buyer = purchase.buyer || {};
+      const buyer = data.buyer || purchase.buyer || {};
+      const product = data.product || purchase.product || {};
       const transaction = purchase.transaction || '';
       
       const customer_email_raw = buyer.email || data.email || '';
       const customer_email = customer_email_raw ? String(customer_email_raw).toLowerCase().trim() : '';
       
-      const customer_phone = buyer.phone || buyer.phone_number || purchase.buyer?.phone || null;
+      const checkoutPhone = [
+        buyer.checkout_phone_code,
+        buyer.checkout_phone
+      ].filter(Boolean).join('');
+      const customer_phone = checkoutPhone ||
+                             buyer.phone ||
+                             buyer.phone_number ||
+                             purchase.buyer?.phone ||
+                             null;
       
       const price = purchase.price || {};
       const amount_reais_raw = price.value || purchase.amount || 0;
@@ -781,6 +795,78 @@ export async function paymentRoutes(app: FastifyInstance) {
         statusNormalized = 'cancelled';
       } else if (eventLower === 'purchase_chargeback' || eventLower.includes('chargeback')) {
         statusNormalized = 'chargeback';
+      } else if (eventLower.includes('refund') || eventLower.includes('refunded')) {
+        statusNormalized = 'refunded';
+      }
+
+      const parentTransactionId = getHotmartParentTransactionId(purchase);
+      const addonType = classifyHotmartAddon({
+        productId: product.id,
+        productName: product.name,
+        amountCents: amount_cents,
+        isOrderBump: purchase.order_bump?.is_order_bump === true,
+        parentTransactionId,
+      });
+
+      // Order bumps e upsells chegam em transações próprias. O backend apenas
+      // registra o evento; o banco associa ao pedido e o n8n faz a entrega.
+      if (addonType) {
+        const { error: addonLogError } = await supabaseClient
+          .from('hotmart_webhook_logs')
+          .upsert({
+            webhook_body: body,
+            transaction_id: transaction,
+            order_id_from_webhook: null,
+            status_received: statusNormalized,
+            customer_email,
+            amount_cents,
+            order_found: false,
+            processing_success: false,
+            error_message: null,
+            strategy_used: 'addon_received',
+          }, {
+            onConflict: 'transaction_id',
+            ignoreDuplicates: false,
+          });
+
+        if (addonLogError) {
+          console.error('❌ [Hotmart Webhook] Falha ao registrar adicional', {
+            addon_type: addonType,
+            transaction,
+            parent_transaction_id: parentTransactionId,
+            error: addonLogError.message,
+          });
+          return reply
+            .code(500)
+            .headers(secureHeaders)
+            .send({
+              received: true,
+              accepted: false,
+              type: 'order_addon',
+              addon_type: addonType,
+              error: 'Falha ao registrar adicional',
+            });
+        }
+
+        console.log('✅ [Hotmart Webhook] Adicional registrado para o n8n', {
+          addon_type: addonType,
+          transaction,
+          parent_transaction_id: parentTransactionId,
+          product_id: product.id,
+          amount_cents,
+        });
+
+        return reply
+          .code(200)
+          .headers(secureHeaders)
+          .send({
+            received: true,
+            accepted: true,
+            type: 'order_addon',
+            addon_type: addonType,
+            transaction_id: transaction,
+            parent_transaction_id: parentTransactionId,
+          });
       }
       
       let order: any = null;
