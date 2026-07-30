@@ -2,6 +2,7 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { paymentRoutes } from './routes/payment.js';
 import { generationRoutes } from './routes/generation.js';
+import { orderAddonRoutes } from './routes/orderAddons.js';
 
 // Função para criar instância do app (reutilizável)
 export async function createApp() {
@@ -80,6 +81,7 @@ export async function createApp() {
   // Registrar rotas
   await app.register(paymentRoutes);
   await app.register(generationRoutes);
+  await app.register(orderAddonRoutes);
 
   return app;
 }
